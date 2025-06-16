@@ -21,6 +21,16 @@
             app:key="webhooks.signing_key"
             app:title="@string/signing_key"
             app:useSimpleSummaryProvider="true" />
+        <!-- ✅ Add this block here -->
+        <EditTextPreference
+            android:icon="@drawable/ic_webhooks_list"
+            android:key="webhooks.default_url"
+            app:title="Default Webhook URL"
+            app:summary="Set the URL where the webhook will be sent"
+            android:inputType="textUri"
+            android:defaultValue="https://example.com/webhook"
+            app:useSimpleSummaryProvider="true" />
+        <!-- ✅ End added block -->
     </PreferenceCategory>
     <Preference
         android:icon="@drawable/ic_webhooks_list"
