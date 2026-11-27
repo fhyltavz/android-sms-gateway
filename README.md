@@ -8,9 +8,11 @@ What is different from stock SMSGate:
 - Cloud server fixed to `https://sms.myqrnfc.com/api/mobile/v1`, Private mode, notification channel **SSE only**, cloud mode on, start on boot on.
 - First start asks only for the one-time code from the sms.myqrnfc.com dashboard ("Get one-time code").
 - No Firebase / Google services (SSE only), so no `google-services.json` is needed to build.
-- Build: `.github/workflows/myqr-apk.yml` (test APK on every push, signed release APK on a `v*` tag).
+- Icon: MyQRNFC mark (`res/drawable/ic_launcher_foreground_myqr.xml`).
+- Build: `.github/workflows/myqr-apk.yml` (test APK on every push; Run workflow with `release_tag` makes a GitHub Release, signed when the `SIGNING_*` secrets exist).
+- Updates: `.github/workflows/upstream-check.yml` checks capcom6 releases every Monday and opens a pull request (or an issue when it can't merge by itself).
 
-Upstream base: capcom6/android-sms-gateway v1.79.3 (6aacabe).
+Upstream base: capcom6/android-sms-gateway v1.79.3 (6aacabe), recorded as a merge so later releases merge with `git merge <tag>`.
 
 ---
 
