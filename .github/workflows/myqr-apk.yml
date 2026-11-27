@@ -1,6 +1,6 @@
 # MyQR SMS Sender: builds the APK.
 # - Every push to a claude/* or main/master branch, or "Run workflow": a test APK as a run artifact.
-# - A tag v*: the APK attached to a GitHub Release, also as myqr-sms-sender.apk so
+# - A tag v*, or "Run workflow" with release_tag: the APK attached to a GitHub Release, also as myqr-sms-sender.apk so
 #   https://github.com/fhyltavz/android-sms-gateway/releases/latest/download/myqr-sms-sender.apk always works.
 #   Signed when the secrets below exist, else a debug-signed TEST build.
 # Signing secrets (Settings > Secrets and variables > Actions):
@@ -13,6 +13,11 @@ on:
     branches: [master, main, "claude/**"]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Make a GitHub Release with this tag (for example v0.1.0); empty = artifact only"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -32,7 +37,10 @@ jobs:
       - name: Version
         id: ver
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then V="${GITHUB_REF_NAME#v}"; else V="0.$(date +%y%m%d).${GITHUB_RUN_NUMBER}-test"; fi
+          TAG="${{ inputs.release_tag }}"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then TAG="$GITHUB_REF_NAME"; fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [ -n "$TAG" ]; then V="${TAG#v}"; else V="0.$(date +%y%m%d).${GITHUB_RUN_NUMBER}-test"; fi
           CODE=$(( ($(date +%s) - $(date -d "2026-11-01" +%s)) / 600 ))
           sed -i "s/versionName .*/versionName \"$V\"/" app/build.gradle
           sed -i "s/versionCode .*/versionCode $CODE/" app/build.gradle
@@ -68,10 +76,11 @@ jobs:
           path: myqr-sms-sender-*.apk
 
       - name: GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: steps.ver.outputs.tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp myqr-sms-sender-*.apk myqr-sms-sender.apk
           if [ "${{ steps.sign.outputs.signed }}" = "true" ]; then NOTE="Signed release."; else NOTE="TEST build (debug signature). Uninstall it before installing a signed release."; fi
-          gh release create "$GITHUB_REF_NAME" myqr-sms-sender-*.apk myqr-sms-sender.apk --title "MyQR SMS Sender $GITHUB_REF_NAME" --notes "$NOTE Install on Android - download the APK, allow installs from your browser, open it. Download page https://sms.myqrnfc.com/app"
+          TAG="${{ steps.ver.outputs.tag }}"
+          gh release create "$TAG" myqr-sms-sender-*.apk myqr-sms-sender.apk --target "$GITHUB_SHA" --title "MyQR SMS Sender $TAG" --notes "$NOTE Install on Android - download the APK, allow installs from your browser, open it. Download page https://sms.myqrnfc.com/app"
