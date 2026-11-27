@@ -2,7 +2,6 @@ plugins {
     id 'com.android.application'
     id 'kotlin-android'
     id 'com.google.devtools.ksp'
-    id 'com.google.gms.google-services'
 }
 
 ksp {
@@ -13,7 +12,7 @@ android {
     compileSdk 33
 
     defaultConfig {
-        applicationId "me.capcom.smsgateway"
+        applicationId "com.myqrnfc.smssender"
         minSdk 21
         targetSdk 33
         versionCode 1
@@ -126,9 +125,7 @@ dependencies {
     implementation("androidx.room:room-ktx:$room_version")
     ksp("androidx.room:room-compiler:$room_version")
 
-    // Import the Firebase BoM
-    implementation platform('com.google.firebase:firebase-bom:31.1.1')
-    implementation 'com.google.firebase:firebase-messaging-ktx'
+    // Firebase removed: MyQR SMS Sender gets its work over SSE only.
 
     implementation 'com.googlecode.libphonenumber:libphonenumber:9.0.22'
 

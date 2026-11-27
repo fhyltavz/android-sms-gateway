@@ -51,6 +51,10 @@ class FirstStartDialogFragment : DialogFragment() {
             }
         })
 
+        // MyQR SMS Sender: phones join only with the one-time code from sms.myqrnfc.com.
+        binding.tabLayout.getTabAt(POSITION_SIGNIN_BY_CODE)?.select()
+        binding.tabLayout.isVisible = false
+
         binding.buttonContinue.setOnClickListener {
             when (binding.tabLayout.selectedTabPosition) {
                 POSITION_SIGNUP -> actionSignUp()

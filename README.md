@@ -1,3 +1,19 @@
+# MyQR SMS Sender
+
+This fork turns [SMSGate](https://github.com/capcom6/android-sms-gateway) (Apache-2.0) into a ready-made sender phone for the **sms.myqrnfc.com** gateway.
+
+What is different from stock SMSGate:
+
+- App id `com.myqrnfc.smssender`, name "MyQR SMS Sender" (installs beside the stock app).
+- Cloud server fixed to `https://sms.myqrnfc.com/api/mobile/v1`, Private mode, notification channel **SSE only**, cloud mode on, start on boot on.
+- First start asks only for the one-time code from the sms.myqrnfc.com dashboard ("Get one-time code").
+- No Firebase / Google services (SSE only), so no `google-services.json` is needed to build.
+- Build: `.github/workflows/myqr-apk.yml` (test APK on every push, signed release APK on a `v*` tag).
+
+Upstream base: capcom6/android-sms-gateway v1.79.3 (6aacabe).
+
+---
+
 <a name="readme-top"></a>
 
 <!-- PROJECT SHIELDS -->

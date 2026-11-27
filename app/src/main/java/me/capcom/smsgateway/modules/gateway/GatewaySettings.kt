@@ -14,7 +14,7 @@ class GatewaySettings(
     }
 
     var enabled: Boolean
-        get() = storage.get<Boolean>(ENABLED) ?: false
+        get() = storage.get<Boolean>(ENABLED) ?: true
         set(value) = storage.set(ENABLED, value)
 
     val deviceId: String?
@@ -45,7 +45,7 @@ class GatewaySettings(
         get() = storage.get<String>(PRIVATE_TOKEN)
 
     val notificationChannel: NotificationChannel
-        get() = storage.get<NotificationChannel>(NOTIFICATION_CHANNEL) ?: NotificationChannel.AUTO
+        get() = storage.get<NotificationChannel>(NOTIFICATION_CHANNEL) ?: NotificationChannel.SSE_ONLY
 
     companion object {
         private const val REGISTRATION_INFO = "REGISTRATION_INFO"
@@ -56,7 +56,8 @@ class GatewaySettings(
         private const val PRIVATE_TOKEN = "private_token"
         private const val NOTIFICATION_CHANNEL = "notification_channel"
 
-        const val PUBLIC_URL = "https://api.sms-gate.app/mobile/v1"
+        // MyQR SMS Sender: phones talk to the sms.myqrnfc.com gateway (Private mode, SSE only).
+        const val PUBLIC_URL = "https://sms.myqrnfc.com/api/mobile/v1"
     }
 
     override fun export(): Map<String, *> {
@@ -93,7 +94,7 @@ class GatewaySettings(
 
                 NOTIFICATION_CHANNEL -> {
                     val newValue = it.value?.let { NotificationChannel.valueOf(it.toString()) }
-                        ?: NotificationChannel.AUTO
+                        ?: NotificationChannel.SSE_ONLY
                     val changed = notificationChannel != newValue
 
                     storage.set(it.key, newValue.name)
