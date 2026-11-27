@@ -1,5 +1,6 @@
 package me.capcom.smsgateway.modules.gateway
 
+import com.google.gson.annotations.SerializedName
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
@@ -8,6 +9,7 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.parameter
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -82,8 +84,9 @@ class GatewayApi(
         }
     }
 
-    suspend fun getMessages(token: String): List<Message> {
+    suspend fun getMessages(token: String, processingOrder: ProcessingOrder): List<Message> {
         return client.get("$baseUrl/message") {
+            parameter("order", processingOrder)
             bearerAuth(token)
         }.body()
     }
@@ -93,6 +96,14 @@ class GatewayApi(
             bearerAuth(token)
             contentType(ContentType.Application.Json)
             setBody(request)
+        }
+    }
+
+    suspend fun postInbox(token: String, messages: List<InboxMessage>) {
+        client.post("$baseUrl/inbox") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody(messages)
         }
     }
 
@@ -139,6 +150,9 @@ class GatewayApi(
     data class DeviceRegisterRequest(
         val name: String,
         val pushToken: String?,
+        val simCards: List<SimCard>,
+        val publicKey: String? = null,
+        val keyVersion: Int? = null,
     )
 
     data class DeviceRegisterResponse(
@@ -150,7 +164,10 @@ class GatewayApi(
 
     data class DevicePatchRequest(
         val id: String,
-        val pushToken: String,
+        val pushToken: String?,
+        val publicKey: String?,
+        val keyVersion: Int?,
+        val simCards: List<SimCard>?,
     )
 
     data class MessagePatchRequest(
@@ -171,17 +188,64 @@ class GatewayApi(
     )
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
+    sealed class MessageContent {
+        class Text(
+            val text: String,
+        ) : MessageContent()
+
+        class Data(
+            val data: String,
+            val port: UShort,
+        ) : MessageContent()
+
+        class Mms(
+            val subject: String?,
+            val text: String?,
+            // Gson can leave this null when the field is omitted (text-only
+            // MMS), despite the non-null Kotlin type. Normalize via the
+            // public accessor below so callers never see null.
+            @SerializedName("attachments")
+            private val _attachments: List<Attachment>?,
+        ) : MessageContent() {
+            val attachments: List<Attachment>
+                get() = _attachments.orEmpty()
+
+            class Attachment(
+                val contentType: String,
+                val name: String?,
+                val data: String,
+            )
+        }
+    }
+
     data class Message(
         val id: String,
-        val message: String,
+        @SerializedName("textMessage")
+        val _textMessage: MessageContent.Text?,
+        @SerializedName("dataMessage")
+        val _dataMessage: MessageContent.Data?,
+        @SerializedName("mmsMessage")
+        val _mmsMessage: MessageContent.Mms?,
         val phoneNumbers: List<String>,
         val simNumber: Int?,
         val withDeliveryReport: Boolean?,
         val isEncrypted: Boolean?,
         val validUntil: Date?,
+        val scheduleAt: Date?,
         val priority: Byte?,
+        val state: MessageState?,
         val createdAt: Date?,
-    )
+
+        @SerializedName("message")
+        val _message: String?,
+    ) {
+        val content: MessageContent
+            get() = this._dataMessage
+                ?: this._textMessage
+                ?: this._mmsMessage
+                ?: _message?.let { MessageContent.Text(it) }
+                ?: throw RuntimeException("Invalid message content")
+    }
 
     data class RecipientState(
         val phoneNumber: String,
@@ -189,9 +253,87 @@ class GatewayApi(
         val error: String?,
     )
 
+    /**
+     * Wire-level message state as reported by the gateway server. Mirrors the
+     * server vocabulary exactly, including Cancelling - a server-side async
+     * cancellation marker resolved in [me.capcom.smsgateway.modules.gateway.GatewayService]
+     * that never enters the local domain (kept separate from the local
+     * [ProcessingState], which never contains Cancelling).
+     */
+    enum class MessageState {
+        @SerializedName("Pending")
+        Pending,
+
+        @SerializedName("Cancelling")
+        Cancelling,
+
+        @SerializedName("Cancelled")
+        Cancelled,
+
+        @SerializedName("Processed")
+        Processed,
+
+        @SerializedName("Sent")
+        Sent,
+
+        @SerializedName("Delivered")
+        Delivered,
+
+        @SerializedName("Failed")
+        Failed
+    }
+
     data class WebHook(
         val id: String,
         val url: String,
         val event: WebHookEvent,
+    )
+
+    enum class ProcessingOrder {
+        @SerializedName("lifo")
+        LIFO,
+
+        @SerializedName("fifo")
+        FIFO;
+
+        override fun toString(): String {
+            return this.name.lowercase()
+        }
+    }
+
+    data class SimCard(
+        val slotIndex: Int,
+        val simNumber: Int,
+        val phoneNumber: String?,
+        val carrierName: String?,
+        val iccid: String?,
+    )
+
+    object InboxMessageType {
+        const val SMS = "SMS"
+        const val DATA_SMS = "DATA_SMS"
+        const val MMS = "MMS"
+        const val MMS_DOWNLOADED = "MMS_DOWNLOADED"
+    }
+
+    data class InboxMessage(
+        val id: String,
+        val type: String,
+        val sender: String,
+        val recipient: String?,
+        val simNumber: Int?,
+        val content: String,
+        val isEncrypted: Boolean = true,
+        val createdAt: Date,
+        val attachments: List<InboxMessageAttachment>?,
+    )
+
+    data class InboxMessageAttachment(
+        val partId: Long,
+        val contentType: String,
+        val name: String,
+        val size: Long?,
+        // the E2E envelope of the encrypted attachment data, not base64
+        val data: String,
     )
 }

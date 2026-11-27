@@ -1,22 +1,24 @@
+# MyQR SMS Sender
+
+This fork turns [SMSGate](https://github.com/capcom6/android-sms-gateway) (Apache-2.0) into a ready-made sender phone for the **sms.myqrnfc.com** gateway.
+
+What is different from stock SMSGate:
+
+- App id `com.myqrnfc.smssender`, name "MyQR SMS Sender" (installs beside the stock app).
+- Cloud server fixed to `https://sms.myqrnfc.com/api/mobile/v1`, Private mode, notification channel **SSE only**, cloud mode on, start on boot on.
+- First start asks only for the one-time code from the sms.myqrnfc.com dashboard ("Get one-time code").
+- No Firebase / Google services (SSE only), so no `google-services.json` is needed to build.
+- Icon: MyQRNFC mark (`res/drawable/ic_launcher_foreground_myqr.xml`).
+- Build: `.github/workflows/myqr-apk.yml` (test APK on every push; Run workflow with `release_tag` makes a GitHub Release, signed when the `SIGNING_*` secrets exist).
+- Updates: `.github/workflows/upstream-check.yml` checks capcom6 releases every Monday and opens a pull request (or an issue when it can't merge by itself).
+
+Upstream base: capcom6/android-sms-gateway v1.79.3 (6aacabe), recorded as a merge so later releases merge with `git merge <tag>`.
+
+---
+
 <a name="readme-top"></a>
-<!--
-*** Thanks for checking out the Best-README-Template. If you have a suggestion
-*** that would make this better, please fork the repo and create a pull request
-*** or simply open an issue with the tag "enhancement".
-*** Don't forget to give the project a star!
-*** Thanks again! Now go create something AMAZING! :D
--->
-
-
 
 <!-- PROJECT SHIELDS -->
-<!--
-*** I'm using markdown "reference style" links for readability.
-*** Reference links are enclosed in brackets [ ] instead of parentheses ( ).
-*** See the bottom of this document for the declaration of the reference variables
-*** for contributors-url, forks-url, etc. This is an optional, concise syntax you may use.
-*** https://www.markdownguide.org/basic-syntax/#reference-style-links
--->
 [![Contributors][contributors-shield]][contributors-url]
 [![Forks][forks-shield]][forks-url]
 [![Stargazers][stars-shield]][stars-url]
@@ -40,7 +42,6 @@
     <a href="https://sms-gate.app"><strong>Explore the docs »</strong></a>
     <br />
     <br />
-    <!-- <a href="https://github.com/capcom6/android-sms-gateway">View Demo</a> -->
     <a href="https://github.com/capcom6/android-sms-gateway/issues">Report Bug</a>
     ·
     <a href="https://github.com/capcom6/android-sms-gateway/issues">Request Feature</a>
@@ -55,13 +56,19 @@
   - [Ideal For](#ideal-for)
   - [Built With](#built-with)
 - [Installation](#installation)
+  - [Build Variants](#build-variants)
   - [Prerequisites](#prerequisites)
     - [Permissions](#permissions)
   - [Installation from APK](#installation-from-apk)
+  - [Build from Source](#build-from-source)
 - [Getting Started](#getting-started)
   - [Local Server](#local-server)
   - [Cloud Server](#cloud-server)
+    - [Device Registration](#device-registration)
+    - [Unregister Device](#unregister-device)
   - [Webhooks](#webhooks)
+    - [Supported Events](#supported-events)
+    - [Setting Up Webhooks](#setting-up-webhooks)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [License](#license)
@@ -80,16 +87,27 @@ SMS Gateway turns your Android smartphone into an SMS gateway. It's a lightweigh
 
 📱 Core Functionality:
 
-- 🆓 **No registration required:** No registration or email is required to create an account. In local mode, you don't need an account at all!
+- 📝 **No personal information required:** Creating an account needs no email or personal details. In cloud mode the device is registered only after you sign up or sign in; in local mode you don't need an account at all!
 - 📨 **Send and Receive SMS via API:** Use [our API](https://docs.sms-gate.app/integration/api/) to send messages directly from your applications or services.
 - 🤖 **Support for Android 5.0 and above:** Compatible with Android 5.0 and later versions. [See Android 15 Note](https://docs.sms-gate.app/faq/general/#does-the-app-support-android-15)
+- 👤 **Explicit device registration:** The device never registers itself in the background — in cloud mode you always sign up or sign in first.
+- 🗑️ **Unregister device:** Remove the cloud registration from the device at any time, and sign up or sign in again whenever you need the cloud server.
 
 💬 Message Handling:
 
 - 📜 **Multipart messages:** Send long messages with auto-partitioning.
 - 📊 **Message status tracking:** Monitor the status of sent messages in real-time.
-- 🔔 **Real-time incoming message notifications:** Receive instant notifications for incoming messages via webhook.
-- 📖 **Read received messages:** Access [previously received messages](https://docs.sms-gate.app/features/reading-messages/) using the same webhook system used for real-time notifications.
+- 📥 **Incoming messages viewer:** View all received SMS, Data SMS, and MMS messages directly in the app with organized tabs and statistics.
+- 🔔 **Real-time incoming message notifications:** Receive instant SMS and MMS notifications via webhooks.
+- 📖 **Read received messages:** Access [previously received messages](https://docs.sms-gate.app/features/reading-messages/) via the same webhooks used for real-time notifications.
+- 📎 **MMS download notifications:** Receive webhook notifications when MMS messages are fully downloaded, including message body and attachments.
+- 📤 **Send MMS messages via API:** Send multimedia messages (images, audio, video, files) as Base64-encoded attachments, with an optional subject and text body.
+- 🖼️ **Received MMS attachments:** Attachments of received MMS messages are stored on the device and can be fetched through the inbox API. Attachments larger than the configurable inline size limit (*Settings → Inbox*, 1 MiB by default) are kept on the device and omitted from webhook payloads and cloud uploads.
+- 📦 **Batch webhook events:** Receive batched webhook deliveries when multiple messages arrive at once, reducing the number of requests.
+- 🛑 **Cancel pending messages:** Cancel queued messages before they are sent.
+- 🔍 **Message filtering:** Filter the messages list by state (pending, sent, delivered, failed) and type (SMS, MMS, Data SMS) to find messages quickly.
+- ⏳ **Send rate limiting:** Restrict the number of messages sent per period (e.g., per 30 minutes) to avoid operator throttling.
+- ⏰ **Message scheduling:** Schedule messages for future delivery using the optional `scheduleAt` field (it must be a future timestamp).
 
 🔒 Security and Privacy:
 
@@ -100,10 +118,14 @@ SMS Gateway turns your Android smartphone into an SMS gateway. It's a lightweigh
 
 - 💳 **Multiple SIM card support:** Supports devices with [multiple SIM cards](https://docs.sms-gate.app/features/multi-sim/).
 - 📱📱 **Multiple device support:** Connect [multiple devices](https://docs.sms-gate.app/features/multi-device/) to the same account with Cloud or Private server. Messages sent via the server are distributed across all connected devices.
+- 💾 **Data SMS support:** Send and receive binary [data payloads](https://docs.sms-gate.app/features/data-sms/) via SMS for IoT commands, encrypted messages, and other specialized use cases.
+- 🕐 **Working hours scheduling:** Restrict message delivery to configurable time windows, automatically pausing the queue outside of them.
+- 🔄 **Reliable background capture:** SMS, data SMS, and MMS receivers are declared in the manifest and enabled while the gateway runs, so incoming messages are still delivered if the system kills the app process.
 
 🔌 Integration:
 
 - 🪝 **Webhooks:** Set up [webhooks](https://docs.sms-gate.app/features/webhooks/) to be triggered on specified events.
+- 📊 **Webhook queue diagnostics:** Inspect the webhook delivery queue in-app to see pending deliveries, retries, and their status.
 
 ### Ideal For
 
@@ -130,7 +152,14 @@ SMS Gateway turns your Android smartphone into an SMS gateway. It's a lightweigh
 
 ## Installation
 
-You can install app to your device from prebuilt APK or by building from sources.
+You can install app to your device from [prebuilt APK](https://github.com/capcom6/android-sms-gateway/releases).
+
+### Build Variants
+
+The project provides two pre-built variants:
+
+- **Secure (release) build**: Production-ready with strict security configurations. This is the recommended build for production deployments.
+- **Insecure build**: For development and testing with cleartext traffic allowed. **This build should never be used in public environments.**
 
 ### Prerequisites
 
@@ -144,6 +173,7 @@ To use the application, you need to grant the following permissions:
 - **READ_PHONE_STATE**: This permission is optional. If you want to select the SIM card, you can grant this permission.
 - **READ_SMS**: This permission is optional. If you want to read previous SMS messages, you need to grant this permission.
 - **RECEIVE_SMS**: This permission is optional. If you want to receive webhooks on incoming SMS, you need to grant this permission.
+- **RECEIVE_MMS**, **RECEIVE_WAP_PUSH**: This permissions are optional. If you want to receive webhooks on incoming MMS messages, you need to grant these permissions.
 
 ### Installation from APK
 
@@ -155,6 +185,47 @@ To use the application, you need to grant the following permissions:
 6. Use a file manager app to navigate to the location of the downloaded APK file.
 7. Tap on the APK file to start the installation process.
 8. Follow the on-screen prompts to complete the installation.
+
+### Build from Source
+
+Prerequisites:
+
+- JDK 17 (required by Android Gradle Plugin 8.1.2) and the Android SDK — the project compiles against SDK 33. The Gradle wrapper (Gradle 8.0) is included in the repository.
+- The SDK location is read from `local.properties` (created automatically by Android Studio) or the `ANDROID_HOME` environment variable.
+- `app/google-services.json` — Firebase configuration required by the Google Services plugin. The file is gitignored, so provide your own copy (CI generates it from a repository secret).
+
+The `release` and `insecure` variants are signed with your own keystore, which the build expects at `app/keystore.jks` (also gitignored). Gradle reads the signing variables from the process environment, not from a `.env` file, and they are listed in [`.env.example`](.env.example):
+
+| Variable                 | Purpose                                                                | Format        | Example                               |
+| ------------------------ | ---------------------------------------------------------------------- | ------------- | ------------------------------------- |
+| `SIGNING_STORE_PASSWORD` | Password for the keystore file used to sign release builds             | String        | `your-keystore-password`              |
+| `SIGNING_KEY_ALIAS`      | Alias of the key inside the keystore that signs release builds         | String        | `your-key-alias`                      |
+| `SIGNING_KEY_PASSWORD`   | Password for that key alias                                            | String        | `your-key-password`                   |
+
+The three signing variables are read by `signingConfigs.release` in `app/build.gradle`. The `debug` and `debugInsecure` variants are signed with the default Android debug keystore and need none of them.
+
+Export the variables and build:
+
+```sh
+cp .env.example .env
+# fill in your values, then:
+set -a; source .env; set +a
+
+./gradlew test             # run unit tests
+./gradlew assembleDebug    # debug build, signed with the default debug keystore
+./gradlew assembleInsecure # insecure development build, signed with the release keystore
+./gradlew assembleRelease  # secure release build, signed with the release keystore
+./gradlew bundleRelease    # release App Bundle (.aab)
+```
+
+`app/build.gradle` defines four build variants:
+
+| Variant         | Signing          | Network traffic                             | Use                     |
+| --------------- | ---------------- | ------------------------------------------- | ----------------------- |
+| `release`       | Release keystore | TLS only (cleartext allowed to `127.0.0.1`) | Production              |
+| `insecure`      | Release keystore | Cleartext allowed                           | Development and testing |
+| `debug`         | Debug keystore   | TLS only (cleartext allowed to `127.0.0.1`) | Local debugging         |
+| `debugInsecure` | Debug keystore   | Cleartext allowed                           | Local debugging         |
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -175,14 +246,14 @@ This mode is ideal for sending messages from a local network.
 
 1. Launch the app on your device.
 2. Toggle the `Local Server` switch to the "on" position.
-3. Tap the `Offline` button at the bottom of the screen to activate the server.
+3. Tap the `Start Service` button at the bottom of the screen to start the gateway. Switch changes take effect after the service is restarted.
 4. In the `Local Server` section, your device's local and public IP addresses will be displayed, along with the credentials for basic authentication. Note that the public IP address is only accessible if you have a public (or "white") IP and your firewall is configured correctly.
 5. To send a message from within the local network, execute a `curl` command like the one below. Replace `<username>`, `<password>`, and `<device_local_ip>` with the actual values provided in the previous step:
 
     ```sh
     curl -X POST -u <username>:<password> \
       -H "Content-Type: application/json" \
-      -d '{ "message": "Hello, doctors!", "phoneNumbers": ["+19162255887", "+19162255888"] }' \
+      -d '{ "textMessage": { "text": "Hello, doctors!" }, "phoneNumbers": ["+19162255887", "+19162255888"] }' \
       http://<device_local_ip>:8080/message
     ```
 
@@ -192,6 +263,21 @@ This mode is ideal for sending messages from a local network.
     smsgate -e 'http://<device_local_ip>:8080/message' -u <username> -p <password> \
       send --phones '+19162255887,+19162255888' 'Hello, doctors!'
     ```
+
+    To send an MMS message, use the `mmsMessage` field with one or more Base64-encoded attachments:
+
+    ```sh
+    curl -X POST -u <username>:<password> \
+      -H "Content-Type: application/json" \
+      -d '{ "mmsMessage": { "subject": "Hello", "text": "See the photo", "attachments": [ { "contentType": "image/jpeg", "name": "photo.jpg", "data": "<base64-encoded-bytes>" } ] }, "phoneNumbers": ["+19162255887"] }' \
+      http://<device_local_ip>:8080/message
+    ```
+
+    *Note*: The `data` field must contain Base64-encoded bytes. The app must be set as the device's default SMS app for reliable MMS sending on most carriers.
+
+The full API reference is available as interactive Swagger documentation at `http://<device_local_ip>:8080/docs`.
+
+The same Swagger page is published at <https://capcom6.github.io/android-sms-gateway/>, where the local-server entry resolves against the GitHub Pages origin. Use the device-hosted page above to exercise the local API.
 
 ### Cloud Server
 
@@ -203,14 +289,14 @@ Use the cloud server mode when dealing with dynamic or shared device IP addresse
 
 1. Launch the app on your device.
 2. Toggle the `Cloud Server` switch to the "on" position.
-3. Tap the `Online` button located at the bottom of the screen to connect to the cloud server.
+3. Tap the `Start Service` button located at the bottom of the screen to start the gateway and connect to the cloud server. The device has to be registered first, see [Device Registration](#device-registration). Switch changes take effect after the service is restarted.
 4. In the `Cloud Server` section, the credentials for basic authentication will be displayed.
 5. To send a message via the cloud server, perform a `curl` request with a command similar to the following, substituting `<username>` and `<password>` with the actual values obtained in step 4:
 
     ```sh
     curl -X POST -u <username>:<password> \
       -H "Content-Type: application/json" \
-      -d '{ "message": "Hello, doctors!", "phoneNumbers": ["+19162255887", "+19162255888"] }' \
+      -d '{ "textMessage": { "text": "Hello, doctors!" }, "phoneNumbers": ["+19162255887", "+19162255888"] }' \
       https://api.sms-gate.app/3rdparty/v1/message
     ```
 
@@ -223,9 +309,48 @@ Use the cloud server mode when dealing with dynamic or shared device IP addresse
 
 For further privacy, you can deploy your own private server. See the [Private Server](https://sms-gate.app/getting-started/private-server/) section for more details.
 
+When connected to the cloud server, received messages (SMS, Data SMS, and MMS) are automatically uploaded to the server for centralized access.
+
+#### Device Registration
+
+The device has to be registered with the cloud server before it can be used in cloud mode. The first time you tap the `Start Service` button, the app asks how to register:
+
+- **Sign Up** — creates a new account. No email or personal information is required.
+- **Sign In** — adds the device to an existing account with its login and password.
+- **By Code** — adds the device to an existing account with the login code shown in the app on the other device.
+
+The gateway starts as soon as the registration succeeds. The start button stays disabled while the registration is running, so a double tap cannot create two accounts or two devices.
+
+#### Unregister Device
+
+The `Unregister device` action in **Settings → Cloud server → Credentials** clears the registration on the device and stops the cloud session. The device has to sign up or sign in again before the cloud server can be used.
+
+*Note*: This only clears the registration on the device — the cloud server keeps its own record of it, so commands for the previous registration can still be pushed to the device. The app ignores them while the device is unregistered.
+
 ### Webhooks
 
-Webhooks can be utilized to get notifications of incoming SMS messages.
+Use webhooks to receive notifications for messaging events (e.g., incoming SMS and MMS).
+
+#### Supported Events
+
+| Event                     | Description                                                                 |
+| ------------------------- | --------------------------------------------------------------------------- |
+| `sms:received`            | Triggered when an SMS message is received                                   |
+| `sms:batch:received`      | Triggered when multiple SMS messages are received at once (batched)         |
+| `sms:sent`                | Triggered when an SMS message is sent                                       |
+| `sms:delivered`           | Triggered when an SMS message is delivered                                  |
+| `sms:failed`              | Triggered when an SMS message fails to send                                 |
+| `sms:cancelled`           | Triggered when a pending SMS message is cancelled                           |
+| `sms:data-received`       | Triggered when a data SMS is received                                       |
+| `sms:batch:data-received` | Triggered when multiple data SMS messages are received at once (batched)    |
+| `mms:received`            | Triggered when an MMS notification is received (before download)            |
+| `mms:batch:received`      | Triggered when multiple MMS notifications are received at once (batched)    |
+| `mms:downloaded`          | Triggered when an MMS message is fully downloaded with body and attachments |
+| `mms:batch:downloaded`    | Triggered when multiple MMS messages are fully downloaded (batched)         |
+| `app:started`             | Triggered when the app is started, with the list of active SIM cards        |
+| `system:ping`             | Periodic heartbeat event                                                    |
+
+#### Setting Up Webhooks
 
 Follow these steps to set up webhooks:
 
@@ -238,7 +363,6 @@ Follow these steps to set up webhooks:
       -d '{ "id": "unique-id", "url": "https://webhook.site/<your-uuid>", "event": "sms:received" }' \
       http://<device_local_ip>:8080/webhooks
     ```
-    
 3. Send an SMS to the device.
 4. The application will dispatch POST request to the specified URL with a payload such as:
 
@@ -246,8 +370,10 @@ Follow these steps to set up webhooks:
     {
       "event": "sms:received",
       "payload": {
+        "messageId": "msg_12345abcde",
         "message": "Received SMS text",
         "phoneNumber": "+19162255887",
+        "simNumber": 1,
         "receivedAt": "2024-06-07T11:41:31.000+07:00"
       }
     }
@@ -275,10 +401,11 @@ For cloud mode the process is similar, simply change the URL to https://api.sms-
 - [x] Add functionality to modify user credentials.
 - [x] Introduce option to adjust the local server port.
 - [x] Send notifications to an external server when the status of a message changes.
-- [ ] Incorporate scheduling capabilities for dispatching messages at specific times.
+- [x] Incorporate scheduling capabilities for dispatching messages at specific times.
 - [ ] Implement region-based restrictions to prevent international SMS.
-- [ ] Provide an API endpoint to retrieve the list of available SIM cards on the device.
+- [x] Provide an API endpoint to retrieve the list of available SIM cards on the device.
 - [x] Include detailed error messages in responses and logs.
+- [x] Send MMS messages via the API.
 
 See the [open issues](https://github.com/capcom6/android-sms-gateway/issues) for a full list of proposed features (and known issues).
 
@@ -328,29 +455,11 @@ If you have any questions or suggestions, feel free to reach out through the fol
 - **Documentation:** [https://docs.sms-gate.app](https://docs.sms-gate.app)
 - **Status Page:** [https://status.sms-gate.app](https://status.sms-gate.app)
 - **Project:** [https://github.com/android-sms-gateway](https://github.com/android-sms-gateway)
-- **Main Repository:** [https://github.com/capcom6/android-sms-gateway](https://github.com/capcom6/android-sms-gateway)
+- **Android App Repository:** [https://github.com/capcom6/android-sms-gateway](https://github.com/capcom6/android-sms-gateway)
 - **Author GitHub:** [capcom6](https://github.com/capcom6)
 
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
-
-<!-- ACKNOWLEDGMENTS -->
-<!-- ## Acknowledgments
-
-Use this space to list resources you find helpful and would like to give credit to. I've included a few of my favorites to kick things off!
-
-* [Choose an Open Source License](https://choosealicense.com)
-* [GitHub Emoji Cheat Sheet](https://www.webpagefx.com/tools/emoji-cheat-sheet)
-* [Malven's Flexbox Cheatsheet](https://flexbox.malven.co/)
-* [Malven's Grid Cheatsheet](https://grid.malven.co/)
-* [Img Shields](https://shields.io)
-* [GitHub Pages](https://pages.github.com)
-* [Font Awesome](https://fontawesome.com)
-* [React Icons](https://react-icons.github.io/react-icons/search)
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p> -->
 
 
 
@@ -366,5 +475,3 @@ Use this space to list resources you find helpful and would like to give credit 
 [issues-url]: https://github.com/capcom6/android-sms-gateway/issues
 [license-shield]: https://img.shields.io/github/license/capcom6/android-sms-gateway.svg?style=for-the-badge
 [license-url]: https://github.com/capcom6/android-sms-gateway/blob/master/LICENSE
-
-

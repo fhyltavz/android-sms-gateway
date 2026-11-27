@@ -1,15 +1,20 @@
 package me.capcom.smsgateway
 
 import android.app.Application
+import android.content.Context
 import healthModule
 import me.capcom.smsgateway.data.dbModule
+import me.capcom.smsgateway.helpers.LocaleHelper
 import me.capcom.smsgateway.modules.connection.connectionModule
+import me.capcom.smsgateway.modules.device.deviceModule
 import me.capcom.smsgateway.modules.encryption.encryptionModule
 import me.capcom.smsgateway.modules.events.eventBusModule
 import me.capcom.smsgateway.modules.gateway.GatewayService
+import me.capcom.smsgateway.modules.incoming.incomingModule
 import me.capcom.smsgateway.modules.localserver.localserverModule
 import me.capcom.smsgateway.modules.logs.logsModule
 import me.capcom.smsgateway.modules.messages.messagesModule
+import me.capcom.smsgateway.modules.mms.mmsModule
 import me.capcom.smsgateway.modules.notifications.notificationsModule
 import me.capcom.smsgateway.modules.orchestrator.OrchestratorService
 import me.capcom.smsgateway.modules.orchestrator.orchestratorModule
@@ -25,6 +30,10 @@ import org.koin.android.ext.koin.androidLogger
 import org.koin.core.context.startKoin
 
 class App: Application() {
+    override fun attachBaseContext(base: Context?) {
+        super.attachBaseContext(base?.let { LocaleHelper.onAttach(it) })
+    }
+
     override fun onCreate() {
         super.onCreate()
 
@@ -37,7 +46,9 @@ class App: Application() {
                 dbModule,
                 logsModule,
                 notificationsModule,
+                mmsModule,
                 messagesModule,
+                incomingModule,
                 receiverModule,
                 encryptionModule,
                 me.capcom.smsgateway.modules.gateway.gatewayModule,
@@ -47,6 +58,7 @@ class App: Application() {
                 pingModule,
                 connectionModule,
                 orchestratorModule,
+                deviceModule,
             )
         }
 

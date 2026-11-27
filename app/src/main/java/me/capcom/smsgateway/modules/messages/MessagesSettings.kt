@@ -11,6 +11,7 @@ class MessagesSettings(
     enum class Period(val duration: Long) {
         Disabled(0L),
         PerMinute(60000L),
+        Per30Minutes(1800000L),
         PerHour(3600000L),
         PerDay(86400000L),
     }
@@ -19,6 +20,10 @@ class MessagesSettings(
         OSDefault,
         RoundRobin,
         Random
+    }
+
+    enum class ProcessingOrder {
+        LIFO, FIFO
     }
 
     private var version: Int
@@ -53,6 +58,79 @@ class MessagesSettings(
     val logLifetimeDays: Int?
         get() = storage.get<Int?>(LOG_LIFETIME_DAYS)?.takeIf { it > 0 }
 
+    val processingOrder: ProcessingOrder
+        get() = storage.get<ProcessingOrder>(PROCESSING_ORDER) ?: ProcessingOrder.LIFO
+
+    val workHoursEnabled: Boolean
+        get() = storage.get<Boolean>(WORK_HOURS_ENABLED) ?: false
+    val workHoursStart: String
+        get() = storage.get(WORK_HOURS_START) ?: "09:00"
+    val workHoursEnd: String
+        get() = storage.get(WORK_HOURS_END) ?: "19:00"
+
+    private fun isInWorkHours(): Boolean {
+        if (!workHoursEnabled) return true
+
+        val now = java.util.Calendar.getInstance()
+        val nowMinutes =
+            now.get(java.util.Calendar.HOUR_OF_DAY) * 60 + now.get(java.util.Calendar.MINUTE)
+        val startMinutes = parseTimeMinutes(workHoursStart)
+        val endMinutes = parseTimeMinutes(workHoursEnd)
+
+        if (startMinutes == endMinutes) return true
+
+        return if (startMinutes < endMinutes) {
+            nowMinutes in startMinutes until endMinutes
+        } else {
+            nowMinutes >= startMinutes || nowMinutes < endMinutes
+        }
+    }
+
+    fun nextWorkHoursStart(): Long? {
+        if (!workHoursEnabled) return null
+        if (isInWorkHours()) return null
+
+        val now = java.util.Calendar.getInstance()
+        val nowMinutes =
+            now.get(java.util.Calendar.HOUR_OF_DAY) * 60 + now.get(java.util.Calendar.MINUTE)
+        val startMinutes = parseTimeMinutes(workHoursStart)
+        val endMinutes = parseTimeMinutes(workHoursEnd)
+
+        val todayStart = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, startMinutes / 60)
+            set(java.util.Calendar.MINUTE, startMinutes % 60)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+
+        return if (startMinutes <= endMinutes) {
+            if (nowMinutes < startMinutes) {
+                todayStart.timeInMillis
+            } else {
+                todayStart.add(java.util.Calendar.DAY_OF_MONTH, 1)
+                todayStart.timeInMillis
+            }
+        } else {
+            todayStart.timeInMillis
+        }
+    }
+
+    private fun parseTimeMinutes(value: String): Int {
+        val parts = value.split(":")
+        return parts.getOrNull(0)?.toIntOrNull()?.let { h ->
+            h * 60 + (parts.getOrNull(1)?.toIntOrNull() ?: 0)
+        } ?: 0
+    }
+
+    private fun isValidTimeFormat(value: String): Boolean {
+        val regex = Regex("^\\d{2}:\\d{2}$")
+        if (!regex.matches(value)) return false
+        val parts = value.split(":")
+        val h = parts.getOrNull(0)?.toIntOrNull() ?: return false
+        val m = parts.getOrNull(1)?.toIntOrNull() ?: return false
+        return h in 0..23 && m in 0..59
+    }
+
     init {
         migrate()
     }
@@ -84,53 +162,150 @@ class MessagesSettings(
         private const val SIM_SELECTION_MODE = "sim_selection_mode"
 
         private const val LOG_LIFETIME_DAYS = "log_lifetime_days"
+
+        private const val PROCESSING_ORDER = "processing_order"
+
+        private const val WORK_HOURS_ENABLED = "work_hours_enabled"
+        private const val WORK_HOURS_START = "work_hours_start"
+        private const val WORK_HOURS_END = "work_hours_end"
     }
 
     override fun export(): Map<String, *> {
         return mapOf(
             SEND_INTERVAL_MIN to sendIntervalMin,
             SEND_INTERVAL_MAX to sendIntervalMax,
-            LIMIT_PERIOD to limitPeriod,
+            LIMIT_PERIOD to limitPeriod.name,
             LIMIT_VALUE to limitValue,
-            SIM_SELECTION_MODE to simSelectionMode,
+            SIM_SELECTION_MODE to simSelectionMode.name,
             LOG_LIFETIME_DAYS to logLifetimeDays,
+            PROCESSING_ORDER to processingOrder.name,
+            WORK_HOURS_ENABLED to workHoursEnabled,
+            WORK_HOURS_START to workHoursStart,
+            WORK_HOURS_END to workHoursEnd,
         )
     }
 
-    override fun import(data: Map<String, *>) {
-        data.forEach { (key, value) ->
+    override fun import(data: Map<String, *>): Boolean {
+        return data.map {
+            val key = it.key
+            val value = it.value
+
             when (key) {
-                SEND_INTERVAL_MIN -> storage.set(
-                    key,
-                    value?.toString()?.toFloat()?.toInt()?.toString()
-                )
+                SEND_INTERVAL_MIN -> {
+                    val newValue = value?.toString()?.toFloat()?.toInt()
+                    val changed = this.sendIntervalMin != newValue
 
-                SEND_INTERVAL_MAX -> storage.set(
-                    key,
-                    value?.toString()?.toFloat()?.toInt()?.toString()
-                )
+                    storage.set(
+                        key,
+                        newValue?.toString()
+                    )
 
-                LIMIT_PERIOD -> storage.set(key, value?.let { Period.valueOf(it.toString()) })
-                LIMIT_VALUE -> {
-                    val limitValue = value?.toString()?.toInt()
-                    if (limitValue != null && limitValue < 1) {
-                        throw IllegalArgumentException("Limit value must be >= 1")
-                    }
-                    storage.set(key, limitValue?.toString())
+                    changed
                 }
 
-                SIM_SELECTION_MODE -> storage.set(
-                    key,
-                    value?.let { SimSelectionMode.valueOf(it.toString()) })
+                SEND_INTERVAL_MAX -> {
+                    val newValue = value?.toString()?.toFloat()?.toInt()
+                    val changed = this.sendIntervalMax != newValue
+
+                    storage.set(
+                        key,
+                        newValue?.toString()
+                    )
+
+                    changed
+                }
+
+                LIMIT_PERIOD -> {
+                    val newValue = value?.let { Period.valueOf(it.toString()) } ?: Period.Disabled
+                    val changed = this.limitPeriod != newValue
+
+                    storage.set(key, newValue.name)
+
+                    changed
+                }
+
+                LIMIT_VALUE -> {
+                    val limitValue = value?.toString()?.toFloat()?.toInt()
+                    if (limitValue != null && limitValue < 0) {
+                        throw IllegalArgumentException("Limit value must be >= 0")
+                    }
+
+                    val changed = this.limitValue != (limitValue ?: 0)
+
+                    storage.set(key, limitValue?.toString())
+
+                    changed
+                }
+
+                SIM_SELECTION_MODE -> {
+                    val newValue = value?.let { SimSelectionMode.valueOf(it.toString()) }
+                        ?: SimSelectionMode.OSDefault
+                    val changed = this.simSelectionMode != newValue
+
+                    storage.set(key, newValue.name)
+
+                    changed
+                }
+
+                PROCESSING_ORDER -> {
+                    val newValue = value?.let { ProcessingOrder.valueOf(it.toString()) }
+                        ?: ProcessingOrder.LIFO
+                    val changed = this.processingOrder != newValue
+
+                    storage.set(key, newValue.name)
+
+                    changed
+                }
 
                 LOG_LIFETIME_DAYS -> {
-                    val logLifetimeDays = value?.toString()?.toInt()
+                    val logLifetimeDays = value?.toString()?.toFloat()?.toInt()
                     if (logLifetimeDays != null && logLifetimeDays < 1) {
                         throw IllegalArgumentException("Log lifetime days must be >= 1")
                     }
+
+                    val changed = this.logLifetimeDays != logLifetimeDays
                     storage.set(key, logLifetimeDays?.toString())
+
+                    changed
                 }
+
+                WORK_HOURS_ENABLED -> {
+                    val newValue = value?.toString()?.toBooleanStrictOrNull() ?: false
+                    val changed = this.workHoursEnabled != newValue
+
+                    storage.set(key, newValue)
+
+                    changed
+                }
+
+                WORK_HOURS_START -> {
+                    val raw = value?.toString()
+                    if (raw != null && !isValidTimeFormat(raw)) {
+                        throw IllegalArgumentException("Invalid time format: $raw")
+                    }
+                    val newValue = if (raw != null && isValidTimeFormat(raw)) raw else "09:00"
+                    val changed = this.workHoursStart != newValue
+
+                    storage.set(key, newValue)
+
+                    changed
+                }
+
+                WORK_HOURS_END -> {
+                    val raw = value?.toString()
+                    if (raw != null && !isValidTimeFormat(raw)) {
+                        throw IllegalArgumentException("Invalid time format: $raw")
+                    }
+                    val newValue = if (raw != null && isValidTimeFormat(raw)) raw else "19:00"
+                    val changed = this.workHoursEnd != newValue
+
+                    storage.set(key, newValue)
+
+                    changed
+                }
+
+                else -> false
             }
-        }
+        }.any { it }
     }
 }
