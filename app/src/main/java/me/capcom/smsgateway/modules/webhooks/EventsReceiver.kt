@@ -4,6 +4,7 @@ import android.util.Log
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import me.capcom.smsgateway.domain.ProcessingState
+import me.capcom.smsgateway.helpers.SubscriptionsHelper
 import me.capcom.smsgateway.modules.events.EventBus
 import me.capcom.smsgateway.modules.events.EventsReceiver
 import me.capcom.smsgateway.modules.messages.events.MessageStateChangedEvent
@@ -21,6 +22,7 @@ class EventsReceiver : EventsReceiver() {
                     Log.d("EventsReceiver", "Event: $it")
 
                     get<WebHooksService>().emit(
+                        get(),
                         WebHookEvent.SystemPing,
                         mapOf("health" to it.health)
                     )
@@ -35,38 +37,57 @@ class EventsReceiver : EventsReceiver() {
                         ProcessingState.Sent -> WebHookEvent.SmsSent
                         ProcessingState.Delivered -> WebHookEvent.SmsDelivered
                         ProcessingState.Failed -> WebHookEvent.SmsFailed
+                        ProcessingState.Cancelled -> WebHookEvent.SmsCancelled
                         else -> return@collect
                     }
 
-                    event.phoneNumbers.forEach { phoneNumber ->
+                    // Get sender's device number using SubscriptionsHelper
+                    val context = get<android.content.Context>()
+                    val sender = event.simNumber?.let { simIndex ->
+                        SubscriptionsHelper.getPhoneNumber(context, simIndex - 1)
+                    }
+
+                    event.phoneNumbers.forEach { destination ->
                         val payload = when (webhookEventType) {
                             WebHookEvent.SmsSent -> SmsEventPayload.SmsSent(
                                 messageId = event.id,
-                                phoneNumber = phoneNumber,
-                                event.simNumber,
+                                simNumber = event.simNumber,
+                                partsCount = event.partsCount ?: -1,
                                 sentAt = Date(),
+                                sender = sender,
+                                recipient = destination,
                             )
 
                             WebHookEvent.SmsDelivered -> SmsEventPayload.SmsDelivered(
                                 messageId = event.id,
-                                phoneNumber = phoneNumber,
-                                event.simNumber,
+                                simNumber = event.simNumber,
                                 deliveredAt = Date(),
+                                sender = sender,
+                                recipient = destination,
                             )
 
                             WebHookEvent.SmsFailed -> SmsEventPayload.SmsFailed(
                                 messageId = event.id,
-                                phoneNumber = phoneNumber,
-                                event.simNumber,
+                                simNumber = event.simNumber,
                                 failedAt = Date(),
                                 reason = event.error ?: "Unknown",
+                                sender = sender,
+                                recipient = destination,
+                            )
+
+                            WebHookEvent.SmsCancelled -> SmsEventPayload.SmsCancelled(
+                                messageId = event.id,
+                                simNumber = event.simNumber,
+                                cancelledAt = Date(),
+                                sender = sender,
+                                recipient = destination,
                             )
 
                             else -> return@forEach
                         }
 
                         get<WebHooksService>().emit(
-                            webhookEventType, payload
+                            get(), webhookEventType, payload
                         )
                     }
                 }

@@ -1,6 +1,11 @@
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <Preference
+        app:fragment="me.capcom.smsgateway.ui.settings.DeviceSettingsFragment"
+        app:icon="@drawable/ic_encryption"
+        app:summary="@string/device_keys_management"
+        app:title="@string/device_dotdotdot" />
+    <Preference
         android:icon="@drawable/ic_local_server"
         app:fragment="me.capcom.smsgateway.ui.settings.LocalServerSettingsFragment"
         app:summary="@string/port_credentials_etc"
@@ -15,7 +20,13 @@
         android:icon="@drawable/ic_messages"
         app:fragment="me.capcom.smsgateway.ui.settings.MessagesSettingsFragment"
         app:title="@string/messages"
-        app:summary="@string/delays_limits_etc"/>
+        app:summary="@string/delays_limits_etc" />
+
+    <Preference
+        android:icon="@drawable/ic_inbox"
+        app:fragment="me.capcom.smsgateway.ui.settings.InboxSettingsFragment"
+        app:summary="@string/inbox_settings_summary"
+        app:title="@string/inbox_dotdotdot" />
 
     <Preference
         android:icon="@drawable/ic_webhook"
@@ -36,6 +47,7 @@
         app:title="@string/ping">
         <EditTextPreference
             android:key="ping.interval_seconds"
+            app:icon="@drawable/ic_ping"
             app:title="@string/interval_seconds"
             app:useSimpleSummaryProvider="true" />
     </PreferenceCategory>
@@ -43,6 +55,7 @@
     <PreferenceCategory app:title="@string/logs">
         <Preference
             app:fragment="me.capcom.smsgateway.ui.LogsListFragment"
+            app:icon="@drawable/ic_logs"
             app:summary="@string/list_of_last_50_log_entries"
             app:title="@string/view" />
         <EditTextPreference
@@ -60,12 +73,20 @@
             app:key="system.disable_battery_optimizations"
             app:summary="@string/can_affect_battery_life"
             app:title="@string/battery_optimization" />
+        <ListPreference
+            android:icon="@drawable/ic_language"
+            android:entries="@array/language_entries"
+            android:entryValues="@array/language_values"
+            android:key="app.language"
+            android:title="@string/language"
+            app:useSimpleSummaryProvider="true" />
     </PreferenceCategory>
 
     <PreferenceCategory app:title="@string/information">
         <Preference
             android:key="transient.app_version"
             android:title="@string/app_version_build"
+            app:icon="@drawable/ic_info"
             app:persistent="false"
             app:selectable="false" />
     </PreferenceCategory>

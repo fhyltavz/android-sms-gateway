@@ -2,86 +2,91 @@ package me.capcom.smsgateway.services
 
 import android.content.Context
 import android.util.Log
-import com.google.android.gms.tasks.OnCompleteListener
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
-import me.capcom.smsgateway.helpers.SettingsHelper
-import me.capcom.smsgateway.modules.events.EventBus
+import me.capcom.smsgateway.modules.events.ExternalEvent
+import me.capcom.smsgateway.modules.events.ExternalEventType
+import me.capcom.smsgateway.modules.gateway.GatewaySettings
 import me.capcom.smsgateway.modules.gateway.workers.RegistrationWorker
-import me.capcom.smsgateway.modules.gateway.workers.SettingsUpdateWorker
-import me.capcom.smsgateway.modules.gateway.workers.WebhooksUpdateWorker
 import me.capcom.smsgateway.modules.logs.LogsService
 import me.capcom.smsgateway.modules.logs.db.LogEntry
-import me.capcom.smsgateway.modules.push.Event
-import me.capcom.smsgateway.modules.push.events.PushMessageEnqueuedEvent
-import me.capcom.smsgateway.modules.push.payloads.MessagesExportRequestedPayload
-import me.capcom.smsgateway.modules.receiver.ReceiverService
+import me.capcom.smsgateway.modules.orchestrator.EventsRouter
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.get
 import org.koin.core.component.inject
 
 class PushService : FirebaseMessagingService(), KoinComponent {
-    private val settingsHelper by inject<SettingsHelper>()
-
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val eventBus by inject<EventBus>()
+    private val logsService by inject<LogsService>()
+    private val eventsRouter by inject<EventsRouter>()
+    private val gatewaySettings by inject<GatewaySettings>()
 
     override fun onNewToken(token: String) {
-        settingsHelper.fcmToken = token
-
-        RegistrationWorker.start(this@PushService, token, true)
+        RegistrationWorker.start(this@PushService, token)
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
         try {
             Log.d(this.javaClass.name, message.data.toString())
 
-            val event = message.data["event"]?.let { Event.valueOf(it) } ?: Event.MessageEnqueued
-            val data = message.data["data"]
-            when (event) {
-                Event.MessageEnqueued -> scope.launch { eventBus.emit(PushMessageEnqueuedEvent()) }
-                Event.WebhooksUpdated -> WebhooksUpdateWorker.start(this)
-                Event.MessagesExportRequested -> data
-                    ?.let {
-                        MessagesExportRequestedPayload.from(
-                            data
-                        )
-                    }
-                    ?.let { payload ->
-                        get<ReceiverService>().export(
-                            this,
-                            payload.since to payload.until
-                        )
-                    }
-
-                Event.SettingsUpdated -> SettingsUpdateWorker.start(this)
+            // The server keeps the push token after unregister, so it may still deliver
+            // commands for the previous registration. Reject them here, at the entry
+            // point, rather than letting each consumer re-check the registration.
+            if (gatewaySettings.registrationInfo == null) {
+                Log.d(this.javaClass.name, "Push message ignored: device is not registered")
+                logsService.insert(
+                    priority = LogEntry.Priority.INFO,
+                    module = this.javaClass.simpleName,
+                    message = "Push message ignored: device is not registered"
+                )
+                return
             }
-        } catch (e: Throwable) {
-            e.printStackTrace()
-        }
-    }
 
-    override fun onDestroy() {
-        scope.cancel()
-        super.onDestroy()
+            val event = message.data["event"]?.let { ExternalEventType.valueOf(it) }
+                ?: ExternalEventType.MessageEnqueued
+            val data = message.data["data"]
+
+            Log.d(this.javaClass.name, "Routing event: $event with data: $data")
+
+            eventsRouter.route(
+                ExternalEvent(
+                    type = event,
+                    data = data,
+                )
+            )
+        } catch (e: Throwable) {
+            Log.e(this.javaClass.name, "Error processing push message", e)
+            logsService.insert(
+                priority = LogEntry.Priority.ERROR,
+                module = this.javaClass.simpleName,
+                message = "Failed to process push message: ${e.message}",
+                mapOf("error" to e.toString())
+            )
+        }
     }
 
     companion object : KoinComponent {
         fun register(context: Context): Unit {
             val logger = get<LogsService>()
+            val settings = get<GatewaySettings>()
+
+            if (settings.notificationChannel == GatewaySettings.NotificationChannel.SSE_ONLY) {
+                logger.insert(
+                    priority = LogEntry.Priority.INFO,
+                    module = PushService::class.java.simpleName,
+                    message = "FCM registration skipped: SSE_ONLY channel configured"
+                )
+                RegistrationWorker.start(context, null)
+                return
+            }
+
 
             logger.insert(
                 priority = LogEntry.Priority.INFO,
                 module = PushService::class.java.simpleName,
                 message = "FCM registration started"
             )
-            FirebaseMessaging.getInstance().token.addOnCompleteListener(OnCompleteListener { task ->
+            FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
                 if (!task.isSuccessful || task.isCanceled) {
                     logger.insert(
                         priority = LogEntry.Priority.ERROR,
@@ -105,8 +110,8 @@ class PushService : FirebaseMessagingService(), KoinComponent {
                 )
 
                 // Log and toast
-                RegistrationWorker.start(context, token, false)
-            })
+                RegistrationWorker.start(context, token)
+            }
         }
     }
 }

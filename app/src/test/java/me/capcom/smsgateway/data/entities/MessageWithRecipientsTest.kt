@@ -10,10 +10,11 @@ class MessageWithRecipientsTest {
     fun testStatePending() {
         val message = Message(
             id = "1",
-            text = "Test message",
+            content = "Test message",
             withDeliveryReport = true,
             simNumber = 1,
             validUntil = null,
+            scheduleAt = null,
             isEncrypted = false,
             source = EntitySource.Local,
             state = ProcessingState.Pending,
@@ -34,10 +35,11 @@ class MessageWithRecipientsTest {
     fun testStateSent() {
         val message = Message(
             id = "1",
-            text = "Test message",
+            content = "Test message",
             withDeliveryReport = true,
             simNumber = 1,
             validUntil = null,
+            scheduleAt = null,
             isEncrypted = false,
             source = EntitySource.Local,
             state = ProcessingState.Pending,
@@ -58,10 +60,11 @@ class MessageWithRecipientsTest {
     fun testStateDelivered() {
         val message = Message(
             id = "2",
-            text = "Test message",
+            content = "Test message",
             withDeliveryReport = true,
             simNumber = 1,
             validUntil = null,
+            scheduleAt = null,
             isEncrypted = false,
             source = EntitySource.Local,
             state = ProcessingState.Pending,

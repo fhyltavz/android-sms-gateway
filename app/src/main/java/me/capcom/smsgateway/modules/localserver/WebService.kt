@@ -19,6 +19,8 @@ import io.ktor.server.auth.Authentication
 import io.ktor.server.auth.UserIdPrincipal
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.basic
+import io.ktor.server.auth.jwt.JWTPrincipal
+import io.ktor.server.auth.jwt.jwt
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.BadRequestException
@@ -36,14 +38,17 @@ import me.capcom.smsgateway.domain.HealthResponse
 import me.capcom.smsgateway.extensions.configure
 import me.capcom.smsgateway.modules.health.HealthService
 import me.capcom.smsgateway.modules.health.domain.Status
-import me.capcom.smsgateway.modules.localserver.domain.Device
+import me.capcom.smsgateway.modules.localserver.auth.JwtService
+import me.capcom.smsgateway.modules.localserver.routes.AuthRoutes
+import me.capcom.smsgateway.modules.localserver.routes.DeviceRoutes
+import me.capcom.smsgateway.modules.localserver.routes.DocsRoutes
+import me.capcom.smsgateway.modules.localserver.routes.InboxRoutes
 import me.capcom.smsgateway.modules.localserver.routes.LogsRoutes
 import me.capcom.smsgateway.modules.localserver.routes.MessagesRoutes
 import me.capcom.smsgateway.modules.localserver.routes.WebhooksRoutes
 import me.capcom.smsgateway.modules.notifications.NotificationsService
 import org.koin.android.ext.android.get
 import org.koin.android.ext.android.inject
-import java.util.Date
 import kotlin.concurrent.thread
 
 class WebService : Service() {
@@ -51,6 +56,7 @@ class WebService : Service() {
     private val settings: LocalServerSettings by inject()
     private val notificationsService: NotificationsService by inject()
     private val healthService: HealthService by inject()
+    private val jwtService: JwtService by lazy { JwtService(get(), get(), get(), get()) }
 
     private val wakeLock: PowerManager.WakeLock by lazy {
         (getSystemService(Context.POWER_SERVICE) as PowerManager).run {
@@ -82,6 +88,18 @@ class WebService : Service() {
 
                             else -> null
                         }
+                    }
+                }
+                jwt("auth-jwt") {
+                    realm = "Access to SMS Gateway"
+                    verifier { jwtService.verifier() }
+                    validate { credential ->
+                        val tokenId = credential.payload.id ?: return@validate null
+                        if (jwtService.isTokenRevoked(tokenId)) {
+                            return@validate null
+                        }
+
+                        JWTPrincipal(credential.payload)
                     }
                 }
             }
@@ -126,37 +144,28 @@ class WebService : Service() {
                         HealthResponse(healthResult)
                     )
                 }
-                authenticate("auth-basic") {
+                authenticate("auth-basic", "auth-jwt") {
                     get("/") {
                         call.respond(mapOf("status" to "ok", "model" to Build.MODEL))
                     }
-                    route("/device") {
-                        get {
-                            val firstInstallTime = packageManager.getPackageInfo(
-                                packageName,
-                                0
-                            ).firstInstallTime
-                            val deviceName = "${Build.MANUFACTURER}/${Build.PRODUCT}"
-                            val deviceId =
-                                deviceName.hashCode().toULong()
-                                    .toString(16).padStart(16, '0') + firstInstallTime.toULong()
-                                    .toString(16).padStart(16, '0')
-                            val device = Device(
-                                deviceId,
-                                deviceName,
-                                Date(firstInstallTime),
-                                Date(),
-                                Date()
-                            )
-
-                            call.respond(listOf(device))
+                    DeviceRoutes(applicationContext, get(), get()).let {
+                        route("/device") {
+                            it.register(this)
+                        }
+                        route("/devices") {
+                            it.register(this)
                         }
                     }
-                    MessagesRoutes(applicationContext, get(), get()).let {
+                    MessagesRoutes(applicationContext, get(), get(), get()).let {
                         route("/message") {
                             it.register(this)
                         }
                         route("/messages") {
+                            it.register(this)
+                        }
+                    }
+                    InboxRoutes(applicationContext, get(), get(), get(), get()).let {
+                        route("/inbox") {
                             it.register(this)
                         }
                     }
@@ -175,6 +184,12 @@ class WebService : Service() {
                     route("/settings") {
                         me.capcom.smsgateway.modules.localserver.routes.SettingsRoutes(get())
                             .register(this)
+                    }
+                    route("/docs") {
+                        DocsRoutes(get()).register(this)
+                    }
+                    route("/auth") {
+                        AuthRoutes(jwtService, get()).register(this)
                     }
                 }
             }

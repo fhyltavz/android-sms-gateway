@@ -24,6 +24,8 @@ class NotificationsService(
         NOTIFICATION_ID_PING_SERVICE to R.drawable.notif_ping,
         NOTIFICATION_ID_SETTINGS_CHANGED to R.drawable.notif_settings,
         NOTIFICATION_ID_SMS_RECEIVED_WEBHOOK to R.drawable.notif_webhook_registered,
+        NOTIFICATION_ID_REALTIME_EVENTS to R.drawable.notif_realtime_events,
+        NOTIFICATION_ID_INBOX_WORKER to R.drawable.notif_webhook,
     )
 
     private val builders = mapOf<Int, (NotificationCompat.Builder) -> NotificationCompat.Builder>(
@@ -65,7 +67,7 @@ class NotificationsService(
         contentIntent: PendingIntent? = null
     ): Notification {
         return NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle(context.getText(R.string.notification_title))
+            .setContentTitle(context.getText(R.string.sms_gateway))
             .setContentText(contentText)
             .setSmallIcon(icons[id] ?: R.drawable.ic_sms)
             .setContentIntent(
@@ -91,5 +93,7 @@ class NotificationsService(
         const val NOTIFICATION_ID_PING_SERVICE = 4
         const val NOTIFICATION_ID_SETTINGS_CHANGED = 5
         const val NOTIFICATION_ID_SMS_RECEIVED_WEBHOOK = 6
+        const val NOTIFICATION_ID_REALTIME_EVENTS = 7
+        const val NOTIFICATION_ID_INBOX_WORKER = 8
     }
 }

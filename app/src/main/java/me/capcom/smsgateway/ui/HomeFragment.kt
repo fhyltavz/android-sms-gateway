@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.os.Build
 import android.os.Bundle
 import android.text.Html
@@ -26,9 +27,10 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.setFragmentResultListener
 import androidx.lifecycle.MediatorLiveData
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import me.capcom.smsgateway.R
-import me.capcom.smsgateway.databinding.FragmentSettingsBinding
+import me.capcom.smsgateway.databinding.FragmentHomeBinding
 import me.capcom.smsgateway.helpers.SettingsHelper
 import me.capcom.smsgateway.modules.connection.ConnectionService
 import me.capcom.smsgateway.modules.events.EventBus
@@ -44,7 +46,9 @@ import org.koin.android.ext.android.inject
 
 class HomeFragment : Fragment() {
 
-    private var _binding: FragmentSettingsBinding? = null
+    private var registrationInFlight = false
+
+    private var _binding: FragmentHomeBinding? = null
     private val binding get() = _binding!!
 
     private val settingsHelper: SettingsHelper by inject()
@@ -63,8 +67,7 @@ class HomeFragment : Fragment() {
         super.onCreate(savedInstanceState)
 
         setFragmentResultListener(FirstStartDialogFragment.REQUEST_KEY) { _, data ->
-            val result = FirstStartDialogFragment.getResult(data)
-            when (result) {
+            when (FirstStartDialogFragment.getResult(data)) {
                 FirstStartDialogFragment.Result.Canceled -> {
                     Toast.makeText(
                         requireContext(),
@@ -72,59 +75,83 @@ class HomeFragment : Fragment() {
                         Toast.LENGTH_SHORT
                     )
                         .show()
-                    binding.buttonStart.isChecked = false
                     return@setFragmentResultListener
                 }
 
-                FirstStartDialogFragment.Result.SignUp -> requestPermissionsAndStart()
+                FirstStartDialogFragment.Result.SignUp -> {
+                    registerAndStart(GatewayService.RegistrationMode.Anonymous)
+                }
 
                 FirstStartDialogFragment.Result.SignIn -> {
-                    val username = FirstStartDialogFragment.getUsername(data)
-                    val password = FirstStartDialogFragment.getPassword(data)
-                    lifecycleScope.launch {
-                        try {
-                            gatewaySvc.registerDevice(
-                                null,
-                                GatewayService.RegistrationMode.WithCredentials(username, password)
-                            )
-                            requestPermissionsAndStart()
-                        } catch (th: Throwable) {
-                            Toast.makeText(
-                                requireContext(),
-                                "Failed to register device: ${th.message}",
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
-                    }
+                    registerAndStart(
+                        GatewayService.RegistrationMode.WithCredentials(
+                            FirstStartDialogFragment.getUsername(data),
+                            FirstStartDialogFragment.getPassword(data),
+                        )
+                    )
                 }
 
                 FirstStartDialogFragment.Result.SignInByCode -> {
-                    val code = FirstStartDialogFragment.getCode(data)
-                    lifecycleScope.launch {
-                        try {
-                            gatewaySvc.registerDevice(
-                                null,
-                                GatewayService.RegistrationMode.WithCode(code)
-                            )
-                            requestPermissionsAndStart()
-                        } catch (th: Throwable) {
-                            Toast.makeText(
-                                requireContext(),
-                                "Failed to register device: ${th.message}",
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
-                    }
+                    registerAndStart(
+                        GatewayService.RegistrationMode.WithCode(
+                            FirstStartDialogFragment.getCode(data)
+                        )
+                    )
                 }
             }
         }
+    }
+
+    private fun registerAndStart(mode: GatewayService.RegistrationMode) {
+        // Each registration creates a separate account and device, and the last response
+        // wins, so a second request must not start while one is still in flight.
+        if (registrationInFlight) {
+            Log.d(javaClass.name, "Device registration already in progress")
+            return
+        }
+        registrationInFlight = true
+        setStartEnabled(false)
+
+        lifecycleScope.launch {
+            try {
+                // Capture the application context up front: the fragment may be detached by
+                // the time the network call returns, and requireContext() would then throw.
+                val appContext = requireContext().applicationContext
+                gatewaySvc.registerDevice(
+                    appContext,
+                    null,
+                    mode
+                )
+                requestPermissionsAndStart()
+            } catch (e: CancellationException) {
+                // Lifecycle cancellation, not a registration failure: keep it propagating
+                // instead of reporting it as an error.
+                throw e
+            } catch (e: Exception) {
+                // `context` rather than `requireContext()`: the fragment may already be
+                // detached, and requiring a context here would throw outside the handler.
+                val ctx = context ?: return@launch
+                Toast.makeText(
+                    ctx,
+                    "Failed to register device: ${e.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+            } finally {
+                registrationInFlight = false
+                setStartEnabled(true)
+            }
+        }
+    }
+
+    private fun setStartEnabled(enabled: Boolean) {
+        _binding?.buttonStart?.isEnabled = enabled
     }
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        _binding = FragmentSettingsBinding.inflate(inflater, container, false)
+        _binding = FragmentHomeBinding.inflate(inflater, container, false)
         return binding.root
     }
 
@@ -135,6 +162,8 @@ class HomeFragment : Fragment() {
         binding.textPublicIP.movementMethod = LinkMovementMethod.getInstance()
         binding.textLocalUsername.movementMethod = LinkMovementMethod.getInstance()
         binding.textLocalPassword.movementMethod = LinkMovementMethod.getInstance()
+        binding.textLocalDeviceId.movementMethod = LinkMovementMethod.getInstance()
+        binding.textRemoteDeviceId.movementMethod = LinkMovementMethod.getInstance()
 
         binding.switchAutostart.isChecked = settingsHelper.autostart
 
@@ -160,7 +189,8 @@ class HomeFragment : Fragment() {
         }
 
         binding.buttonStart.setOnClickListener {
-            actionStart(binding.buttonStart.isChecked)
+            val isRunning = stateLiveData.value ?: false
+            actionStart(!isRunning)
         }
 
 //        if (settingsHelper.autostart) {
@@ -182,7 +212,7 @@ class HomeFragment : Fragment() {
                 )
 
                 binding.textRemotePassword.text = when (event.password) {
-                    null -> getString(R.string.n_a)
+                    null -> getString(R.string.password_hidden)
                     else -> makeCopyableLink(
                         Html
                             .fromHtml(
@@ -190,6 +220,15 @@ class HomeFragment : Fragment() {
                             )
                     )
                 }
+
+                // Set Cloud Server Device ID
+                binding.textRemoteDeviceId.text = gatewaySettings.deviceId?.let {
+                    makeCopyableLink(
+                        Html.fromHtml(
+                            "<a href>$it</a>"
+                        )
+                    )
+                } ?: getString(R.string.n_a)
             }
         }
         viewLifecycleOwner.lifecycleScope.launch {
@@ -198,6 +237,15 @@ class HomeFragment : Fragment() {
 
                 binding.textRemoteUsername.text = getString(R.string.not_registered)
                 binding.textRemotePassword.text = getString(R.string.n_a)
+
+                // Set Cloud Server Device ID (even for failure cases)
+                binding.textRemoteDeviceId.text = gatewaySettings.deviceId?.let {
+                    makeCopyableLink(
+                        Html.fromHtml(
+                            "<a href>$it</a>"
+                        )
+                    )
+                } ?: getString(R.string.n_a)
 
                 Toast.makeText(
                     requireContext(),
@@ -231,7 +279,7 @@ class HomeFragment : Fragment() {
                         )
                     )
 
-                } ?: getString(R.string.settings_local_address_not_found)
+                } ?: getString(R.string.not_available)
 
                 binding.textPublicIP.text = event.publicIP?.let {
                     makeCopyableLink(
@@ -243,12 +291,32 @@ class HomeFragment : Fragment() {
                             )
                         )
                     )
-                } ?: getString(R.string.settings_public_address_not_found)
+                } ?: getString(R.string.not_available)
+
+                // Set Local Server Device ID
+                binding.textLocalDeviceId.text = localServerSettings.deviceId?.let {
+                    makeCopyableLink(
+                        Html.fromHtml(
+                            "<a href>$it</a>"
+                        )
+                    )
+                } ?: getString(R.string.n_a)
             }
         }
 
-        stateLiveData.observe(viewLifecycleOwner) {
-            binding.buttonStart.isChecked = it
+        stateLiveData.observe(viewLifecycleOwner) { isRunning ->
+            binding.buttonStart.apply {
+                text = getString(
+                    if (isRunning) R.string.button_stop_service
+                    else R.string.button_start_service
+                )
+                backgroundTintList = ColorStateList.valueOf(
+                    ContextCompat.getColor(
+                        requireContext(),
+                        if (isRunning) R.color.red_800 else R.color.grey_700
+                    )
+                )
+            }
         }
 
         connectionService.status.observe(viewLifecycleOwner) {
@@ -304,6 +372,11 @@ class HomeFragment : Fragment() {
 
     private fun actionStart(start: Boolean) {
         if (start) {
+            if (registrationInFlight) {
+                Log.d(javaClass.name, "Device registration already in progress")
+                return
+            }
+
             if (gatewaySettings.enabled
                 && gatewaySettings.registrationInfo == null
             ) {
@@ -327,7 +400,7 @@ class HomeFragment : Fragment() {
     }
 
     private fun start() {
-        orchestratorSvc.start(requireContext(), false)
+        orchestratorSvc.start(requireContext().applicationContext, false)
     }
 
     private fun requestPermissionsAndStart() {
@@ -337,7 +410,10 @@ class HomeFragment : Fragment() {
                 Manifest.permission.READ_SMS,
                 Manifest.permission.RECEIVE_SMS,
                 Manifest.permission.SEND_SMS,
+                Manifest.permission.RECEIVE_MMS,
+                Manifest.permission.READ_PHONE_NUMBERS.takeIf { Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU },
             )
+                .filterNotNull()
                 .filter {
                     ContextCompat.checkSelfPermission(
                         requireContext(),
@@ -403,6 +479,7 @@ class HomeFragment : Fragment() {
             }
         }
     }
+
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
