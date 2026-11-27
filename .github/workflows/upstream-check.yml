@@ -63,7 +63,7 @@ jobs:
           TAG="${{ steps.up.outputs.tag }}"; BR="${{ steps.up.outputs.branch }}"
           BODY="capcom6 released SMSGate $TAG (https://github.com/capcom6/android-sms-gateway/releases/tag/$TAG). This branch merges it; our MyQR changes and workflows are kept. A test APK build is started for this branch (Actions tab). Merge when it looks good, then make a release with Run workflow > release_tag."
           if gh pr create --base "${{ github.event.repository.default_branch }}" --head "$BR" --title "Update to capcom6 SMSGate $TAG" --body "$BODY"; then :; else
-            gh issue create --title "capcom6 SMSGate $TAG is ready to merge" --body "$BODY Open the pull request here: https://github.com/${{ github.repository }}/compare/$BR?expand=1 (Actions isn't allowed to open pull requests in this repo)."
+            gh issue create --title "capcom6 SMSGate $TAG is ready to merge" --body "$BODY Open the pull request here: https://github.com/${{ github.repository }}/compare/$BR?expand=1 (Actions isn't allowed to open pull requests in this repo)." || { echo "::error::New capcom6 $TAG on branch $BR, but no pull request or issue could be opened"; exit 1; }
           fi
           gh workflow run myqr-apk.yml --ref "$BR" || true
 
@@ -71,4 +71,4 @@ jobs:
         if: steps.merge.outputs.conflicts == 'true'
         run: |
           TAG="${{ steps.up.outputs.tag }}"
-          gh issue create --title "capcom6 SMSGate $TAG needs a manual merge" --body "Merging $TAG could not be done automatically: $(tr '\n' ' ' < conflicts.txt). Ask Claude to merge it."
+          gh issue create --title "capcom6 SMSGate $TAG needs a manual merge" --body "Merging $TAG could not be done automatically: $(tr '\n' ' ' < conflicts.txt). Ask Claude to merge it." || { echo "::error::capcom6 $TAG needs a manual merge (issues are off, so the run is marked failed instead)"; exit 1; }
